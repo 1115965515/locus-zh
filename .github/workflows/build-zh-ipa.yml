@@ -1,0 +1,85 @@
+name: Build Chinese IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "27"
+
+      - name: Show SDK
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build unsigned Release
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project Locus.xcodeproj \
+            -scheme Locus \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            clean build
+
+      - name: Package IPA
+        run: |
+          set -euo pipefail
+          APP="build/Build/Products/Release-iphoneos/Locus.app"
+          test -d "$APP"
+          rm -rf Payload
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          rm -rf Payload/Locus.app/_CodeSignature || true
+          zip -qry Locus-1.0.2-zh.ipa Payload
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Locus-1.0.2-zh
+          path: Locus-1.0.2-zh.ipa
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.2-zh
+          name: Locus 1.0.2-zh
+          body: |
+            基于 Locus 1.0.2 的简体中文版。
+
+            - 界面汉化
+            - 中国大陆地图选点纠偏（GCJ-02 → WGS-84）
+            - 适配 LocalDevVPN 默认本机地址 10.7.1.1
+            - 未传送时定位按钮对准蓝点
+            - 安装版本号为 1.0.2（构建号递增），同一签名可覆盖安装
+            - 配对记录写入钥匙串，同一签名重装后可恢复
+          files: Locus-1.0.2-zh.ipa
+          generate_release_notes: false
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
